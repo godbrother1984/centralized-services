@@ -1,0 +1,167 @@
+services:
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.debug=false"
+      - "--log.level=WARN"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.postgres.address=:15432"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=admin@yourdomain.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "15432:15432" # PostgreSQL via Traefik TCP Router
+      - "8080:8080" # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt_data:/letsencrypt
+    networks:
+      - proxy-network
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - "traefik.http.routers.dashboard.entrypoints=web"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.middlewares=dashboard-auth,security-headers"
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$2y$$05$$P5QdBVhPhP/shgXQKRTWc.e41YwlfajjBfZyAEUtuYxQDqcGAVDai"
+      - "traefik.http.middlewares.security-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      # Rate Limiting - 10 requests per 30 seconds per IP for admin dashboard
+      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.average=10"
+      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.period=30s"
+      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.burst=5"
+
+  # PostgreSQL Database สำหรับ Keycloak (Private - Internal Only)
+  keycloak-postgresql:
+    image: postgres:15
+    container_name: keycloak-postgresql
+    environment:
+      POSTGRES_DB: keycloak_db
+      POSTGRES_USER: keycloak_user
+      POSTGRES_PASSWORD: KcDb_Secure_P@ssw0rd_2024!
+      POSTGRES_HOST_AUTH_METHOD: md5
+    volumes:
+      - keycloak_postgresql_data:/var/lib/postgresql/data
+      - ./init-keycloak.sql:/docker-entrypoint-initdb.d/init-keycloak.sql
+    networks:
+      - keycloak-internal-network
+      - proxy-network
+    restart: unless-stopped
+    # ไม่มี labels สำหรับ Traefik - Internal only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak_user -d keycloak_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Central PostgreSQL Database (ผ่าน Traefik เท่านั้น)
+  central-postgresql:
+    image: postgres:15
+    container_name: central-postgresql
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_admin_password
+      # Connection limits for security
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    volumes:
+      - central_postgresql_data:/var/lib/postgresql/data
+      - ./init-central.sql:/docker-entrypoint-initdb.d/init-central.sql
+      - ./pg_hba_custom.conf:/var/lib/postgresql/data/pg_hba.conf
+    networks:
+      - proxy-network
+    restart: unless-stopped
+    # เข้าถึงผ่าน Traefik TCP routing เท่านั้น (db.localhost:5432 -> Traefik -> PostgreSQL)
+    labels:
+      - "traefik.enable=true"
+      # TCP Router Definition
+      - "traefik.tcp.routers.postgres-router.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.postgres-router.entrypoints=postgres"
+      - "traefik.tcp.routers.postgres-router.service=postgres-service"
+      # TCP Service Definition
+      - "traefik.tcp.services.postgres-service.loadbalancer.server.port=5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Keycloak Authentication Server
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: Kc_Admin_SecureP@ss2024!
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgresql:5432/keycloak_db
+      KC_DB_USERNAME: keycloak_user
+      KC_DB_PASSWORD: KcDb_Secure_P@ssw0rd_2024!
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT_BACKCHANNEL: false
+      KC_PROXY: edge
+      KC_SPI_LOGIN_PROTOCOL_OPENID_CONNECT_SUPPRESS_LOGOUT_CONFIRMATION_SCREEN: true
+      KEYCLOAK_FRONTEND_URL: http://auth.localhost
+    depends_on:
+      keycloak-postgresql:
+        condition: service_healthy
+    networks:
+      - proxy-network
+      - keycloak-internal-network
+    restart: unless-stopped
+    command: ["start-dev", "--spi-x-frame-options-x-frame-options=SAMEORIGIN"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-network"
+      - "traefik.http.routers.keycloak.rule=Host(`auth.localhost`)"
+      - "traefik.http.routers.keycloak.entrypoints=web"
+      - "traefik.http.routers.keycloak.middlewares="
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      # HTTPS redirect
+      - "traefik.http.routers.keycloak-secure.rule=Host(`auth.localhost`)"
+      - "traefik.http.routers.keycloak-secure.entrypoints=websecure"
+      - "traefik.http.routers.keycloak-secure.middlewares="
+      - "traefik.http.routers.keycloak-secure.tls.certresolver=myresolver"
+      # Keycloak Rate Limiting - Stricter for auth service
+      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.average=10"
+      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.period=30s"
+      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.burst=5"
+      # Keycloak Security Headers
+      - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
+      - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+
+volumes:
+  keycloak_postgresql_data:
+    driver: local
+  central_postgresql_data:
+    driver: local
+  letsencrypt_data:
+    driver: local
+
+networks:
+  proxy-network:
+    driver: bridge
+    name: proxy-network
+  keycloak-internal-network:
+    driver: bridge
+    name: keycloak-internal-network

@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker:*)",
+      "Bash(docker compose:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Read(//c/Windows/System32/drivers/etc/**)",
+      "Bash(tasklist:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(curl:*)",
+      "Bash(psql:*)",
+      "Bash(nslookup:*)",
+      "Bash(ping:*)",
+      "Bash(grep:*)",
+      "Bash(timeout:*)",
+      "Bash(powershell:*)",
+      "Bash(for i in {1..15})",
+      "Bash(do echo \"Request $i:\")",
+      "Bash(done)",
+      "Bash(for i in {1..25})",
+      "Bash(do echo:*)",
+      "Bash(for i in {1..30})",
+      "Bash(for i in {1..10})",
+      "Bash(for i in {1..8})",
+      "Bash(do curl:*)",
+      "Bash(for i in {1..20})",
+      "Bash(seq:*)",
+      "Bash(xargs:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
