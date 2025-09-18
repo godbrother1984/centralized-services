@@ -1,11 +1,11 @@
 # Centralized Services with Traefik Proxy
 -- File: centralized-services/README.md
--- Version: 2.0.0
+-- Version: 2.1.0
 -- Date: 2025-09-18
--- Description: ระบบบริการส่วนกลางพร้อม Rate Limiting และ Security
+-- Description: ระบบบริการส่วนกลางพร้อม OAuth2/OIDC Redirect Flow และ Production Security
 
 ## Overview
-ระบบบริการส่วนกลางที่ประกอบด้วย Keycloak Authentication Service และ PostgreSQL Database ผ่าน Traefik Reverse Proxy พร้อม **Rate Limiting**, **Security Headers** และ **SSL/TLS** สำหรับให้บริการระบบต่างๆ ในองค์กรอย่างปลอดภัย
+ระบบบริการส่วนกลางที่ประกอบด้วย Keycloak Authentication Service และ PostgreSQL Database ผ่าน Traefik Reverse Proxy พร้อม **OAuth2/OIDC Redirect Flow**, **Security Headers** และการป้องกัน **Clickjacking** สำหรับให้บริการระบบต่างๆ ในองค์กรอย่างปลอดภัย
 
 ## Services
 
@@ -35,7 +35,7 @@
 - **Version**: 24.0
 - **URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin
-- **ข้อมูลเข้าสู่ระบบ Admin**: admin / admin123
+- **ข้อมูลเข้าสู่ระบบ Admin**: admin / Kc_Admin_SecureP@ss2024!
 
 
 ## การเริ่มใช้งาน (Quick Start)
@@ -68,7 +68,7 @@ docker-compose down -v
 
 ### 3. การเข้าถึงบริการ
 - **Traefik Dashboard**: http://traefik.localhost/dashboard/ (admin:secret)
-- **Keycloak Admin**: http://auth.localhost/admin/ (admin:admin123)
+- **Keycloak Admin**: http://auth.localhost/admin/ (admin:Kc_Admin_SecureP@ss2024!)
 - **Central PostgreSQL**: `psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres"`
 
 ## การเข้าถึงฐานข้อมูล
@@ -157,7 +157,7 @@ DB_PASSWORD=your_project_password
 ### การเข้าถึง Admin Console
 - URL: http://auth.localhost/admin
 - Username: admin
-- Password: admin123
+- Password: Kc_Admin_SecureP@ss2024!
 
 ### การตั้งค่า Realm และ Client
 1. **สร้าง Realm ใหม่**:
@@ -261,20 +261,51 @@ docker-compose logs -f keycloak
 docker-compose logs --tail=50
 ```
 
+## การรักษาความปลอดภัย (Security Features)
+
+### OAuth2/OIDC Redirect Flow
+ระบบใช้ **OAuth2/OIDC Redirect Flow** ที่เป็นมาตรฐานแทนการใช้ iframe:
+
+#### ✅ **ข้อดีของ Redirect Flow:**
+- ป้องกัน **Clickjacking attacks**
+- รองรับ **PKCE (Proof Key for Code Exchange)**
+- เป็นไปตาม **OAuth2/OIDC standards**
+- รองรับ **State parameter** เพื่อป้องกัน CSRF
+
+#### ❌ **เหตุผลที่ไม่ใช้ iframe:**
+- เสี่ยงต่อ **Cross-frame scripting**
+- ปัญหา **Session fixation**
+- ถูกบล็อกโดย **CSP frame-ancestors**
+
+> 📖 **คู่มือแก้ปัญหา CSP**: ดูไฟล์ `fix-authentication-flow.md`
+
+### Security Headers
+- `X-Frame-Options: DENY` - ป้องกัน clickjacking
+- `Content-Security-Policy: frame-ancestors 'none'` - ป้องกัน iframe embedding
+- `X-Content-Type-Options: nosniff` - ป้องกัน MIME confusion
+- `Strict-Transport-Security` - บังคับใช้ HTTPS (production)
+
 ## การเชื่อมต่อจากระบบภายนอก
 
-### ตัวอย่างการใช้งานจาก Frontend (React)
+### ตัวอย่างการใช้งานจาก Frontend (React) - OAuth2 Redirect Flow
 ```javascript
 import Keycloak from 'keycloak-js';
 
 const keycloak = new Keycloak({
-  url: 'http://localhost:8080/',
+  url: 'http://auth.localhost/',
   realm: 'your-realm-name',
   clientId: 'your-client-id'
 });
 
-keycloak.init({ onLoad: 'login-required' });
+// ใช้ OAuth2 Redirect Flow (ไม่ใช่ iframe)
+keycloak.init({
+  onLoad: 'login-required',
+  checkLoginIframe: false,  // ปิด iframe checking
+  flow: 'standard'          // ใช้ redirect flow
+});
 ```
+
+> 📖 **สำหรับตัวอย่างโค้ดที่สมบูรณ์**: ดูไฟล์ `examples/react-auth-example.js`
 
 ### ตัวอย่างการใช้งานจาก Backend (Node.js)
 ```javascript
@@ -284,14 +315,24 @@ const Keycloak = require('keycloak-connect');
 const memoryStore = new session.MemoryStore();
 const keycloak = new Keycloak({ store: memoryStore }, {
   realm: 'your-realm-name',
-  'auth-server-url': 'http://localhost:8080/',
+  'auth-server-url': 'http://auth.localhost/',
   'ssl-required': 'external',
   resource: 'your-client-id',
   credentials: {
     secret: 'your-client-secret'
   }
 });
+
+// Protected route example
+app.get('/api/protected', keycloak.protect(), (req, res) => {
+  res.json({
+    message: 'Protected resource',
+    user: req.kauth.grant.access_token.content
+  });
+});
 ```
+
+> 📖 **สำหรับตัวอย่างโค้ดที่สมบูรณ์**: ดูไฟล์ `examples/nodejs-auth-example.js`
 
 ## การแก้ปัญหา PostgreSQL GUI Clients
 

@@ -110,7 +110,7 @@ docker cp keycloak:/tmp/realm-export.json ./realm-backup.json
 - **URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin
 - **Admin Username**: admin
-- **Admin Password**: admin123
+- **Admin Password**: Kc_Admin_SecureP@ss2024!
 
 
 ## Central PostgreSQL Database Connection Guide
@@ -378,7 +378,7 @@ services:
 # URL: http://auth.localhost/admin (development)
 # URL: https://auth.cigblusolutions.com/admin (production)
 # Username: admin
-# Password: admin123 (ต้องเปลี่ยนใน production)
+# Password: Kc_Admin_SecureP@ss2024!
 ```
 
 #### สร้าง Realm ใหม่
@@ -506,7 +506,27 @@ app.use('/protected', keycloak.protect(), (req, res) => {
 ```
 
 ### Integration Guidelines
+
+#### OAuth2/OIDC Authentication Flow
+- **ใช้ redirect flow เท่านั้น** - ห้ามใช้ iframe embedding
+- รองรับ **PKCE (Proof Key for Code Exchange)** สำหรับ public clients
+- ใช้ **State parameter** เพื่อป้องกัน CSRF attacks
 - สำหรับระบบที่ต้องการใช้ Keycloak authentication
+
+#### Client Configuration
 - สร้าง Realm และ Client ตามความต้องการของแต่ละระบบ
-- ใช้ OpenID Connect หรือ SAML สำหรับการ authentication
-- รองรับ Single Sign-On (SSO) สำหรับหลายระบบ
+- ใช้ **OpenID Connect** สำหรับ modern applications
+- ใช้ **SAML** สำหรับ legacy systems
+- รองรับ **Single Sign-On (SSO)** สำหรับหลายระบบ
+
+#### Security Best Practices
+- **ไม่ใช้ iframe** สำหรับ authentication (ถูกบล็อกโดย CSP)
+- ใช้ **Authorization Code Flow** สำหรับ web applications
+- ใช้ **Authorization Code Flow + PKCE** สำหรับ mobile/SPA
+- เก็บ **refresh tokens** ใน httpOnly cookies
+
+#### ตัวอย่างการใช้งาน
+- ดูไฟล์ `examples/react-auth-example.js` สำหรับ frontend
+- ดูไฟล์ `examples/nodejs-auth-example.js` สำหรับ backend
+- ดูไฟล์ `examples/client-configurations.md` สำหรับการตั้งค่า
+- ดูไฟล์ `fix-authentication-flow.md` สำหรับการแก้ปัญหา CSP

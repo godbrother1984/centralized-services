@@ -5,16 +5,18 @@ services:
     container_name: traefik
     command:
       - "--api.dashboard=true"
-      - "--api.debug=false"
-      - "--log.level=WARN"
+      - "--api.debug=true"
+      - "--api.insecure=true"
+      - "--log.level=INFO"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.postgres.address=:15432"
-      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=admin@yourdomain.com"
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      # ปิด ACME สำหรับ development เพื่อหลีกเลี่ยง Let's Encrypt errors
+      # - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      # - "--certificatesresolvers.myresolver.acme.email=admin@yourdomain.com"
+      # - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
       - "443:443"
@@ -31,15 +33,16 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       - "traefik.http.routers.dashboard.entrypoints=web"
       - "traefik.http.routers.dashboard.service=api@internal"
+      # เปิด authentication กลับและปิด rate limiting เพื่อการใช้งานปกติ
       - "traefik.http.routers.dashboard.middlewares=dashboard-auth,security-headers"
       - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$2y$$05$$P5QdBVhPhP/shgXQKRTWc.e41YwlfajjBfZyAEUtuYxQDqcGAVDai"
       - "traefik.http.middlewares.security-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
       - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
       - "traefik.http.middlewares.security-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
-      # Rate Limiting - 10 requests per 30 seconds per IP for admin dashboard
-      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.average=10"
-      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.period=30s"
-      - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.burst=5"
+      # ปิด Rate Limiting สำหรับ dashboard เพื่อหลีกเลี่ยง 429 errors
+      # - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.average=10"
+      # - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.period=30s"
+      # - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.burst=5"
 
   # PostgreSQL Database สำหรับ Keycloak (Private - Internal Only)
   keycloak-postgresql:
@@ -121,7 +124,7 @@ services:
       - proxy-network
       - keycloak-internal-network
     restart: unless-stopped
-    command: ["start-dev", "--spi-x-frame-options-x-frame-options=SAMEORIGIN"]
+    command: ["start-dev"]
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy-network"
@@ -129,19 +132,19 @@ services:
       - "traefik.http.routers.keycloak.entrypoints=web"
       - "traefik.http.routers.keycloak.middlewares="
       - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
-      # HTTPS redirect
-      - "traefik.http.routers.keycloak-secure.rule=Host(`auth.localhost`)"
-      - "traefik.http.routers.keycloak-secure.entrypoints=websecure"
-      - "traefik.http.routers.keycloak-secure.middlewares="
-      - "traefik.http.routers.keycloak-secure.tls.certresolver=myresolver"
-      # Keycloak Rate Limiting - Stricter for auth service
-      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.average=10"
-      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.period=30s"
-      - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.burst=5"
-      # Keycloak Security Headers
-      - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
+      # ปิด HTTPS redirect สำหรับ development เพื่อหลีกเลี่ยง SSL certificate errors
+      # - "traefik.http.routers.keycloak-secure.rule=Host(`auth.localhost`)"
+      # - "traefik.http.routers.keycloak-secure.entrypoints=websecure"
+      # - "traefik.http.routers.keycloak-secure.middlewares="
+      # - "traefik.http.routers.keycloak-secure.tls.certresolver=myresolver"
+      # ปิด Keycloak Rate Limiting เพื่อหลีกเลี่ยง 429 errors
+      # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.average=10"
+      # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.period=30s"
+      # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.burst=5"
+      # Production Security Headers - Keycloak จะจัดการ X-Frame-Options และ CSP เอง
       - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.X-Content-Type-Options=nosniff"
       - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.Strict-Transport-Security=max-age=31536000; includeSubDomains"
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 10s

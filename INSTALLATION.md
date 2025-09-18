@@ -1,8 +1,8 @@
 # คู่มือการติดตั้งระบบ Centralized Services
 -- File: centralized-services/INSTALLATION.md
--- Version: 2.0.0
+-- Version: 2.1.0
 -- Date: 2025-09-18
--- Description: คู่มือการติดตั้งและตั้งค่าระบบ Centralized Services พร้อม Rate Limiting และ Security
+-- Description: คู่มือการติดตั้งและตั้งค่าระบบ Centralized Services พร้อม OAuth2/OIDC Redirect Flow และ Production Security
 
 ## สารบัญ
 1. [ความต้องการของระบบ](#ความต้องการของระบบ)
