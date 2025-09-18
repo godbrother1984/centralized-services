@@ -1,8 +1,8 @@
 # คู่มือการเชื่อมต่อระบบ (Integration Guide)
 -- File: centralized-services/INTEGRATION.md
--- Version: 1.0.0
--- Date: 2025-09-17
--- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Keycloak Authentication และ Central PostgreSQL Database
+-- Version: 2.1.0
+-- Date: 2025-09-18
+-- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Keycloak Authentication (OAuth2/OIDC Redirect Flow) และ Central PostgreSQL Database
 
 ## สารบัญ
 1. [ภาพรวมการเชื่อมต่อ](#ภาพรวมการเชื่อมต่อ)
@@ -56,18 +56,18 @@
 
 ### 🎯 Services URLs
 - **Keycloak Authentication**: `http://auth.localhost` (dev) / `https://auth.cigblusolutions.com` (prod)
-- **Central PostgreSQL**: `db.localhost:5432` (accessible via Traefik proxy only)
+- **Central PostgreSQL**: `localhost:15432` (accessible via Traefik TCP proxy only)
 - **Traefik Dashboard**: `http://traefik.localhost/dashboard/` (login: admin/secret)
 
 ### 🔒 สิ่งสำคัญ: Database Security
 - **Central PostgreSQL เข้าถึงผ่าน Traefik เท่านั้น** - ไม่เปิด direct ports
-- **Your Backend API** เชื่อมต่อ Database โดยการเรียก `db.localhost:5432` → **Traefik รับ request แล้วส่งต่อไปยัง PostgreSQL container**
+- **Your Backend API** เชื่อมต่อ Database โดยการเรียก `localhost:15432` → **Traefik รับ request แล้วส่งต่อไปยัง PostgreSQL container**
 - **Frontend ไม่เชื่อมต่อ Database โดยตรง** - ต้องผ่าน Backend API
 - **Authentication ผ่าน Keycloak** - Backend API เรียก `auth.localhost` → **Traefik รับ request แล้วส่งต่อไปยัง Keycloak**
 
 ### 🌐 Connection Flow
 1. **Your Frontend** → **Your Backend API** (HTTP/HTTPS)
-2. **Your Backend API** → **Traefik** → **Central PostgreSQL** (via `db.localhost:5432`)
+2. **Your Backend API** → **Traefik** → **Central PostgreSQL** (via `localhost:15432`)
 3. **Your Frontend/Backend** → **Traefik** → **Keycloak** (via `auth.localhost`) for authentication
 
 ## การเตรียมความพร้อม
@@ -80,7 +80,7 @@ docker compose ps
 
 # ทดสอบการเชื่อมต่อ
 curl -f http://auth.localhost/realms/master
-psql "postgresql://postgres:postgres_admin_password@db.localhost:5432/postgres" -c "SELECT version();"
+psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c "SELECT version();"
 ```
 
 ## 🔑 ข้อมูลการเข้าถึงระบบ
@@ -89,15 +89,15 @@ psql "postgresql://postgres:postgres_admin_password@db.localhost:5432/postgres" 
 - **Development URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin/
 - **Username**: admin
-- **Password**: admin123
+- **Password**: Kc_Admin_SecureP@ss2024!
 - **Realm**: master (หรือ realm ที่สร้างขึ้น)
 
 ### Central PostgreSQL Database
-- **Host**: db.localhost:5432 (ผ่าน Traefik)
+- **Host**: localhost:15432 (ผ่าน Traefik TCP proxy)
 - **Database**: postgres (หรือ database ที่สร้างขึ้น)
 - **Username**: postgres
 - **Password**: postgres_admin_password
-- **Connection String**: `postgresql://postgres:postgres_admin_password@db.localhost:5432/postgres`
+- **Connection String**: `postgresql://postgres:postgres_admin_password@localhost:15432/postgres`
 
 ### Traefik Dashboard (ระบบส่วนกลาง)
 - **URL**: http://traefik.localhost/dashboard/
@@ -127,6 +127,31 @@ project-root/
 
 ## การเชื่อมต่อ Keycloak Authentication
 
+### 🔐 **สิ่งสำคัญ: OAuth2/OIDC Redirect Flow**
+
+**ใช้ redirect flow เท่านั้น - ห้ามใช้ iframe!**
+
+#### ✅ **วิธีที่ถูกต้อง (Redirect Flow):**
+```javascript
+// ใช้ redirect flow
+keycloak.init({
+  onLoad: 'login-required',
+  checkLoginIframe: false,  // ปิด iframe
+  flow: 'standard'          // ใช้ redirect
+});
+```
+
+#### ❌ **วิธีที่ผิด (Iframe - ถูกบล็อก):**
+```javascript
+// ห้ามใช้ - จะได้ CSP error
+<iframe src="http://auth.localhost/"></iframe>
+// Error: "frame-ancestors 'none'"
+```
+
+> 📖 **อ่านเพิ่มเติม**: ดูไฟล์ `fix-authentication-flow.md` สำหรับรายละเอียด
+
+## การเชื่อมต่อ Keycloak Authentication
+
 ### 1. สร้าง Realm และ Client ใน Keycloak
 
 #### เข้าสู่ Keycloak Admin Console
@@ -137,7 +162,7 @@ URL: http://auth.localhost/admin
 URL: https://auth.cigblusolutions.com/admin
 
 Username: admin
-Password: admin123 (หรือดูจาก .env)
+Password: Kc_Admin_SecureP@ss2024!
 ```
 
 #### สร้าง Realm สำหรับโครงการ
@@ -238,10 +263,11 @@ function App() {
   const [userInfo, setUserInfo] = useState(null);
 
   useEffect(() => {
+    // ใช้ OAuth2 redirect flow (ไม่ใช่ iframe)
     keycloak.init({
       onLoad: 'check-sso',
-      silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
-      checkLoginIframe: false
+      checkLoginIframe: false,  // ปิด iframe checking
+      flow: 'standard'          // ใช้ redirect flow
     }).then(authenticated => {
       setKeycloakAuth(authenticated);
       if (authenticated) {
@@ -327,9 +353,11 @@ import keycloak from './plugins/keycloak';
 
 let app;
 
+// ใช้ OAuth2 redirect flow (ไม่ใช่ iframe)
 keycloak.init({
   onLoad: 'check-sso',
-  checkLoginIframe: false
+  checkLoginIframe: false,  // ปิด iframe checking
+  flow: 'standard'          // ใช้ redirect flow
 }).then(authenticated => {
   app = createApp(App);
 
@@ -491,8 +519,8 @@ async def admin_endpoint(token_info: dict = Depends(require_role("admin"))):
 ### 1. สร้าง Database และ User สำหรับโครงการ
 
 ```bash
-# เชื่อมต่อ PostgreSQL ในฐานะ admin
-psql -h localhost -p 5432 -U postgres -d postgres
+# เชื่อมต่อ PostgreSQL ในฐานะ admin (ผ่าน Traefik TCP proxy)
+psql -h localhost -p 15432 -U postgres -d postgres
 
 # สร้าง database สำหรับโครงการใหม่
 CREATE DATABASE my_project_db
@@ -538,7 +566,7 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   host: 'localhost',
-  port: 5432,
+  port: 15432,  // ผ่าน Traefik TCP proxy
   database: process.env.DB_NAME || 'my_project_db',
   user: process.env.DB_USER || 'my_project_user',
   password: process.env.DB_PASSWORD || 'secure_password_123',
@@ -605,7 +633,7 @@ from datetime import datetime
 import os
 
 # Database URL
-DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'my_project_user')}:{os.getenv('DB_PASSWORD', 'secure_password_123')}@db.localhost:5432/{os.getenv('DB_NAME', 'my_project_db')}"
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'my_project_user')}:{os.getenv('DB_PASSWORD', 'secure_password_123')}@localhost:15432/{os.getenv('DB_NAME', 'my_project_db')}"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -659,7 +687,7 @@ async def create_user(username: str, email: str, db: Session = Depends(get_db)):
 // application.yml
 spring:
   datasource:
-    url: jdbc:postgresql://db.localhost:5432/my_project_db
+    url: jdbc:postgresql://localhost:15432/my_project_db
     username: my_project_user
     password: secure_password_123
     driver-class-name: org.postgresql.Driver
@@ -739,7 +767,7 @@ services:
       - KEYCLOAK_CLIENT_ID=my-project-backend
       - KEYCLOAK_CLIENT_SECRET=your-client-secret
       - DB_HOST=localhost
-      - DB_PORT=5432
+      - DB_PORT=15432
       - DB_NAME=my_project_db
       - DB_USER=my_project_user
       - DB_PASSWORD=secure_password_123
@@ -765,9 +793,9 @@ services:
     command: >
       bash -c "
         echo 'Waiting for central database...' &&
-        until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done &&
+        until pg_isready -h localhost -p 15432 -U postgres; do sleep 1; done &&
         echo 'Creating project database and user...' &&
-        psql -h localhost -p 5432 -U postgres -d postgres -c \"
+        psql -h localhost -p 15432 -U postgres -d postgres -c \"
           CREATE DATABASE my_project_db;
           CREATE USER my_project_user WITH PASSWORD 'secure_password_123';
           GRANT ALL PRIVILEGES ON DATABASE my_project_db TO my_project_user;
@@ -793,7 +821,7 @@ KEYCLOAK_CLIENT_SECRET=your-client-secret-from-keycloak
 
 # Database Configuration
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=15432
 DB_NAME=my_project_db
 DB_USER=my_project_user
 DB_PASSWORD=secure_password_123
@@ -810,7 +838,7 @@ FRONTEND_URL=http://myproject.localhost
 # เพิ่มใน /etc/hosts หรือ C:\Windows\System32\drivers\etc\hosts
 127.0.0.1    myproject.localhost
 127.0.0.1    api.myproject.localhost
-127.0.0.1    db.localhost
+# ไม่ต้อง db.localhost เพราะใช้ localhost:15432 ผ่าน Traefik
 ```
 
 ## Best Practices
@@ -902,10 +930,10 @@ curl -f http://auth.localhost/health/ready
 ### 2. Database Connection Issues
 ```bash
 # ตรวจสอบการเชื่อมต่อ
-psql -h localhost -p 5432 -U postgres -c "SELECT version();"
+psql -h localhost -p 15432 -U postgres -c "SELECT version();"
 
 # ตรวจสอบ user permissions
-psql -h localhost -p 5432 -U my_project_user -d my_project_db -c "\dt"
+psql -h localhost -p 15432 -U my_project_user -d my_project_db -c "\dt"
 
 # ตรวจสอบ network connectivity
 docker network inspect proxy-network
@@ -959,6 +987,26 @@ docker exec my-project-backend ping localhost
 - ตรวจสอบ client roles configuration
 ```
 
+## 📂 **ตัวอย่างโค้ดเพิ่มเติม**
+
+สำหรับตัวอย่างการใช้งานที่สมบูรณ์และเป็นปัจจุบัน:
+
+### React Frontend
+- **ไฟล์**: `examples/react-auth-example.js`
+- **คุณสมบัติ**: OAuth2 redirect flow, PKCE, token management, protected routes
+
+### Node.js Backend
+- **ไฟล์**: `examples/nodejs-auth-example.js`
+- **คุณสมบัติ**: Express.js, role-based access, database integration, API endpoints
+
+### Client Configuration
+- **ไฟล์**: `examples/client-configurations.md`
+- **คุณสมบัติ**: Keycloak client setup, environment variables, security best practices
+
+### Troubleshooting
+- **ไฟล์**: `fix-authentication-flow.md`
+- **คุณสมบัติ**: แก้ปัญหา CSP errors, iframe vs redirect comparison
+
 ---
 
-> 💡 **หมายเหตุ**: เอกสารนี้เป็นคู่มือสำหรับการเชื่อมต่อโครงการใหม่เข้ากับระบบ Centralized Services หากมีปัญหาหรือข้อสงสัย สามารถศึกษาเพิ่มเติมใน [CLAUDE.md](CLAUDE.md) และ [INSTALLATION.md](INSTALLATION.md)
+> 💡 **หมายเหตุ**: เอกสารนี้เป็นคู่มือสำหรับการเชื่อมต่อโครงการใหม่เข้ากับระบบ Centralized Services หากมีปัญหาหรือข้อสงสัย สามารถศึกษาเพิ่มเติมใน [CLAUDE.md](CLAUDE.md), [INSTALLATION.md](INSTALLATION.md) และ [CHANGELOG.md](CHANGELOG.md)
