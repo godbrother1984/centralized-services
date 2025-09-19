@@ -9,9 +9,10 @@
 2. [การเตรียมความพร้อม](#การเตรียมความพร้อม)
 3. [การเชื่อมต่อ Keycloak Authentication](#การเชื่อมต่อ-keycloak-authentication)
 4. [การเชื่อมต่อ Central PostgreSQL](#การเชื่อมต่อ-central-postgresql)
-5. [ตัวอย่างโครงการ](#ตัวอย่างโครงการ)
-6. [Best Practices](#best-practices)
-7. [การแก้ไขปัญหา](#การแก้ไขปัญหา)
+5. [การทำงานร่วมกันระหว่าง Docker Stacks](#การทำงานร่วมกันระหว่าง-docker-stacks)
+6. [ตัวอย่างโครงการ](#ตัวอย่างโครงการ)
+7. [Best Practices](#best-practices)
+8. [การแก้ไขปัญหา](#การแก้ไขปัญหา)
 
 ## ภาพรวมการเชื่อมต่อ
 
@@ -24,14 +25,14 @@
                     │ Reverse Proxy   │
                     └─────────┬───────┘
                               │
-                ┌─────────────┼─────────────┐
-                │             │             │
-                ▼             ▼
-    ┌─────────────────┐ ┌─────────────────┐
-    │    Keycloak     │ │ Central PostgreSQL│
-    │ Authentication  │ │    Database     │
-    └─────────────────┘ └─────────────────┘
-     auth.localhost      db.localhost:5432
+            ┌─────────────────┼─────────────────┐
+            │                 │                 │
+            ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│    Keycloak     │ │      n8n        │ │ Central PostgreSQL│
+│ Authentication  │ │ Workflow Auto   │ │    Database     │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
+ auth.localhost      n8n.localhost      db.localhost:5432
 ```
 
 #### Integration กับโครงการภายนอก
@@ -722,6 +723,627 @@ public class User {
 
     // Constructors, getters, setters
 }
+```
+
+## การเชื่อมต่อ n8n Workflow Automation
+
+### 🔧 **ภาพรวม n8n Integration**
+
+n8n เป็น workflow automation platform ที่รวมอยู่ในระบบ Centralized Services สำหรับจัดการ automation workflows, API integrations และ scheduled tasks
+
+#### การเข้าถึง n8n
+- **URL**: http://n8n.localhost
+- **Username**: admin
+- **Password**: N8n_Admin_SecureP@ss2024!
+- **Database**: n8n_db (ใช้ Central PostgreSQL)
+
+### 🚀 **การใช้งาน n8n กับโครงการของคุณ**
+
+#### 1. การสร้าง Webhook สำหรับ API Integration
+```javascript
+// ตัวอย่างการเรียก n8n webhook จาก application
+const axios = require('axios');
+
+// Webhook URL จาก n8n workflow
+const webhookUrl = 'http://n8n.localhost/webhook/your-webhook-id';
+
+// ส่งข้อมูลไปยัง n8n workflow
+async function triggerWorkflow(data) {
+  try {
+    const response = await axios.post(webhookUrl, {
+      event: 'user_registered',
+      userId: data.userId,
+      email: data.email,
+      timestamp: new Date().toISOString()
+    });
+
+    console.log('Workflow triggered:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to trigger workflow:', error.message);
+    throw error;
+  }
+}
+
+// การใช้งานใน Express.js route
+app.post('/api/users/register', async (req, res) => {
+  try {
+    // สร้าง user ในฐานข้อมูล
+    const newUser = await createUser(req.body);
+
+    // Trigger n8n workflow สำหรับ welcome email
+    await triggerWorkflow({
+      userId: newUser.id,
+      email: newUser.email
+    });
+
+    res.json({ success: true, user: newUser });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+```
+
+#### 2. การเชื่อมต่อ n8n กับ Keycloak
+```javascript
+// n8n HTTP Request Node configuration
+// สำหรับเรียก Keycloak API
+{
+  "method": "POST",
+  "url": "http://auth.localhost/admin/realms/your-realm/users",
+  "headers": {
+    "Authorization": "Bearer {{$json.keycloak_token}}",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "username": "{{$json.username}}",
+    "email": "{{$json.email}}",
+    "enabled": true,
+    "credentials": [{
+      "type": "password",
+      "value": "{{$json.password}}",
+      "temporary": false
+    }]
+  }
+}
+```
+
+#### 3. การเชื่อมต่อ n8n กับ PostgreSQL
+```sql
+-- ตัวอย่าง SQL Query ใน n8n PostgreSQL Node
+-- เชื่อมต่อไปยัง central-postgresql:5432
+SELECT
+  u.id,
+  u.username,
+  u.email,
+  u.created_at,
+  COUNT(o.id) as order_count
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.created_at >= '{{$json.start_date}}'
+GROUP BY u.id, u.username, u.email, u.created_at
+ORDER BY order_count DESC;
+```
+
+### 📋 **Use Cases สำหรับ n8n**
+
+#### 1. User Management Automation
+- สร้าง user ใน Keycloak อัตโนมัติเมื่อมีการสมัครสมาชิกใหม่
+- ส่ง welcome email
+- เพิ่ม user เข้า groups และ roles ตามเงื่อนไข
+
+#### 2. Data Synchronization
+- Sync ข้อมูลระหว่าง databases
+- Export/Import ข้อมูลจาก/ไป external systems
+- Backup automation
+
+#### 3. Monitoring และ Alerts
+- ตรวจสอบ system health
+- ส่ง alerts เมื่อมี errors
+- Generate reports อัตโนมัติ
+
+#### 4. API Integration
+- เชื่อมต่อกับ third-party services
+- Process webhooks จาก external systems
+- Data transformation และ enrichment
+
+### 🔒 **Security Considerations**
+
+#### 1. n8n Basic Authentication
+```bash
+# Environment variables ใน docker-compose.yml
+N8N_BASIC_AUTH_ACTIVE=true
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=N8n_Admin_SecureP@ss2024!
+```
+
+#### 2. Database Connection Security
+- n8n ใช้ internal network เชื่อมต่อ PostgreSQL
+- ไม่เปิด direct access จากภายนอก
+- ใช้ strong passwords สำหรับ database credentials
+
+#### 3. Webhook Security
+```javascript
+// ตัวอย่างการตรวจสอบ webhook signature
+const crypto = require('crypto');
+
+function verifyWebhookSignature(payload, signature, secret) {
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+
+  return signature === `sha256=${expectedSignature}`;
+}
+
+// ใช้ใน Express middleware
+app.use('/webhook', (req, res, next) => {
+  const signature = req.headers['x-signature'];
+  const isValid = verifyWebhookSignature(
+    JSON.stringify(req.body),
+    signature,
+    process.env.WEBHOOK_SECRET
+  );
+
+  if (!isValid) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  next();
+});
+```
+
+## การทำงานร่วมกันระหว่าง Docker Stacks
+
+### 🏗️ **แนวคิด Multi-Stack Architecture**
+
+ระบบ Centralized Services รองรับการทำงานร่วมกันของหลายโครงการที่แยก Docker stack กัน ผ่าน **external networks** และ **shared services**
+
+#### สถาปัตยกรรม Multi-Stack
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         proxy-network                               │
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐      │
+│  │  Stack 1:       │  │  Stack 2:       │  │  Stack 3:       │      │
+│  │ Centralized     │  │  E-commerce     │  │    CRM          │      │
+│  │  Services       │  │   Project       │  │  Project        │      │
+│  │                 │  │                 │  │                 │      │
+│  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │      │
+│  │ │   Traefik   │ │  │ │  Frontend   │ │  │ │   Web App   │ │      │
+│  │ │  Keycloak   │ │  │ │   Backend   │ │  │ │             │ │      │
+│  │ │ PostgreSQL  │ │  │ │             │ │  │ │             │ │      │
+│  │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │      │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘      │
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐      │
+│  │  Stack 4:       │  │  Stack 5:       │  │  Stack N:       │      │
+│  │ Inventory       │  │   Analytics     │  │  Future         │      │
+│  │  System         │  │    Service      │  │  Projects       │      │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 🔗 **ข้อดีของ Multi-Stack Architecture**
+
+#### ✅ **Independence & Isolation**
+- **แยก lifecycle**: แต่ละโครงการ deploy/update/restart แยกกันได้
+- **Team isolation**: ทีมต่างกันทำงานแยกกันโดยไม่รบกวนกัน
+- **Resource isolation**: CPU, Memory แยกกันตาม stack
+- **Version control**: แต่ละโครงการมี Git repository แยกกัน
+
+#### ✅ **Shared Resources**
+- **Single Authentication**: ใช้ Keycloak เดียวกันสำหรับทุกโครงการ
+- **Central Database**: PostgreSQL เดียวกันแต่ database แยกกัน
+- **Unified Routing**: Traefik จัดการ routing ให้ทุกโครงการ
+- **SSL Management**: Certificate management รวมศูนย์
+
+#### ✅ **Scalability**
+- **Horizontal scaling**: เพิ่มโครงการใหม่ได้ง่าย
+- **Service discovery**: Traefik จับ services ใหม่อัตโนมัติ
+- **Load balancing**: แยก load ตาม domain/path
+
+### 🛠️ **การตั้งค่า Multi-Stack**
+
+#### 1. Directory Structure แนะนำ
+```
+project-ecosystem/
+├── centralized-services/           # 🏛️ Infrastructure Stack
+│   ├── docker-compose.yml
+│   ├── INTEGRATION.md
+│   ├── CLAUDE.md
+│   └── examples/
+│
+├── ecommerce-platform/             # 🛒 E-commerce Stack
+│   ├── docker-compose.yml
+│   ├── frontend/
+│   ├── backend/
+│   ├── .env
+│   └── docs/
+│
+├── crm-system/                     # 👥 CRM Stack
+│   ├── docker-compose.yml
+│   ├── webapp/
+│   ├── api/
+│   └── .env
+│
+├── inventory-management/           # 📦 Inventory Stack
+│   ├── docker-compose.yml
+│   ├── src/
+│   └── .env
+│
+├── analytics-dashboard/            # 📊 Analytics Stack
+│   ├── docker-compose.yml
+│   ├── dashboard/
+│   ├── data-processor/
+│   └── .env
+│
+└── mobile-api-gateway/             # 📱 Mobile API Stack
+    ├── docker-compose.yml
+    ├── gateway/
+    └── .env
+```
+
+#### 2. Network Configuration
+
+**Centralized Services** (สร้าง network หลัก):
+```yaml
+# centralized-services/docker-compose.yml
+networks:
+  proxy-network:
+    driver: bridge
+    name: proxy-network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+```
+
+**โครงการอื่นๆ** (ใช้ external network):
+```yaml
+# ecommerce-platform/docker-compose.yml
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+```
+
+#### 3. ตัวอย่าง Stack Configurations
+
+##### Stack 2: E-commerce Platform
+```yaml
+# ecommerce-platform/docker-compose.yml
+version: '3.8'
+services:
+  ecommerce-frontend:
+    build: ./frontend
+    container_name: ecommerce-frontend
+    environment:
+      - REACT_APP_KEYCLOAK_URL=http://auth.localhost/
+      - REACT_APP_KEYCLOAK_REALM=ecommerce-realm
+      - REACT_APP_API_URL=http://api.ecommerce.localhost
+    networks:
+      - proxy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ecommerce.rule=Host(`shop.localhost`)"
+      - "traefik.http.routers.ecommerce.entrypoints=web"
+      - "traefik.http.services.ecommerce.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  ecommerce-backend:
+    build: ./backend
+    container_name: ecommerce-backend
+    environment:
+      - NODE_ENV=development
+      - KEYCLOAK_URL=http://auth.localhost/
+      - KEYCLOAK_REALM=ecommerce-realm
+      - KEYCLOAK_CLIENT_ID=ecommerce-backend
+      - DB_HOST=localhost
+      - DB_PORT=15432
+      - DB_NAME=ecommerce_db
+      - DB_USER=ecommerce_user
+      - DB_PASSWORD=ecommerce_secure_pass
+    networks:
+      - proxy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ecommerce-api.rule=Host(`api.ecommerce.localhost`)"
+      - "traefik.http.routers.ecommerce-api.entrypoints=web"
+      - "traefik.http.services.ecommerce-api.loadbalancer.server.port=3000"
+    restart: unless-stopped
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+```
+
+##### Stack 3: CRM System
+```yaml
+# crm-system/docker-compose.yml
+version: '3.8'
+services:
+  crm-webapp:
+    build: ./webapp
+    container_name: crm-webapp
+    environment:
+      - VUE_APP_KEYCLOAK_URL=http://auth.localhost/
+      - VUE_APP_KEYCLOAK_REALM=crm-realm
+      - VUE_APP_API_URL=http://api.crm.localhost
+    networks:
+      - proxy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.crm.rule=Host(`crm.localhost`)"
+      - "traefik.http.routers.crm.entrypoints=web"
+      - "traefik.http.services.crm.loadbalancer.server.port=80"
+
+  crm-api:
+    build: ./api
+    container_name: crm-api
+    environment:
+      - KEYCLOAK_URL=http://auth.localhost/
+      - KEYCLOAK_REALM=crm-realm
+      - DB_HOST=localhost
+      - DB_PORT=15432
+      - DB_NAME=crm_db
+      - DB_USER=crm_user
+      - DB_PASSWORD=crm_secure_pass
+    networks:
+      - proxy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.crm-api.rule=Host(`api.crm.localhost`)"
+      - "traefik.http.routers.crm-api.entrypoints=web"
+      - "traefik.http.services.crm-api.loadbalancer.server.port=8080"
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+```
+
+### 🚀 **Deployment Workflow**
+
+#### 1. เริ่มต้น Ecosystem
+```bash
+# Step 1: เริ่ม Infrastructure Stack
+cd centralized-services
+docker-compose up -d
+
+# ตรวจสอบ infrastructure
+docker-compose ps
+curl -f http://auth.localhost/health/ready
+psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c "SELECT version();"
+```
+
+#### 2. เตรียม Databases สำหรับแต่ละโครงการ
+```bash
+# สร้าง databases สำหรับทุกโครงการ
+psql -h localhost -p 15432 -U postgres -d postgres << EOF
+-- E-commerce Database
+CREATE DATABASE ecommerce_db;
+CREATE USER ecommerce_user WITH PASSWORD 'ecommerce_secure_pass';
+GRANT ALL PRIVILEGES ON DATABASE ecommerce_db TO ecommerce_user;
+
+-- CRM Database
+CREATE DATABASE crm_db;
+CREATE USER crm_user WITH PASSWORD 'crm_secure_pass';
+GRANT ALL PRIVILEGES ON DATABASE crm_db TO crm_user;
+
+-- Inventory Database
+CREATE DATABASE inventory_db;
+CREATE USER inventory_user WITH PASSWORD 'inventory_secure_pass';
+GRANT ALL PRIVILEGES ON DATABASE inventory_db TO inventory_user;
+
+-- Analytics Database
+CREATE DATABASE analytics_db;
+CREATE USER analytics_user WITH PASSWORD 'analytics_secure_pass';
+GRANT ALL PRIVILEGES ON DATABASE analytics_db TO analytics_user;
+
+-- n8n Workflow Database (ถูกสร้างแล้วอัตโนมัติ)
+-- CREATE DATABASE n8n_db;
+-- CREATE USER n8n_user WITH PASSWORD 'N8n_Secure_P@ssw0rd_2024!';
+-- GRANT ALL PRIVILEGES ON DATABASE n8n_db TO n8n_user;
+EOF
+```
+
+#### 3. สร้าง Keycloak Realms
+```bash
+# เข้า Keycloak Admin Console: http://auth.localhost/admin/
+# Username: admin, Password: Kc_Admin_SecureP@ss2024!
+
+# สร้าง Realms:
+# 1. ecommerce-realm
+# 2. crm-realm
+# 3. inventory-realm
+# 4. analytics-realm
+
+# สร้าง Clients และ Users สำหรับแต่ละ realm
+```
+
+#### 4. Deploy แต่ละโครงการ
+```bash
+# E-commerce Platform
+cd ../ecommerce-platform
+docker-compose up -d
+
+# CRM System
+cd ../crm-system
+docker-compose up -d
+
+# Inventory Management
+cd ../inventory-management
+docker-compose up -d
+
+# Analytics Dashboard
+cd ../analytics-dashboard
+docker-compose up -d
+```
+
+#### 5. ตรวจสอบการทำงาน
+```bash
+# ตรวจสอบ network connectivity
+docker network inspect proxy-network
+
+# ตรวจสอบ services
+curl -f http://shop.localhost
+curl -f http://crm.localhost
+curl -f http://inventory.localhost
+curl -f http://analytics.localhost
+
+# ตรวจสอบ API endpoints
+curl -f http://api.ecommerce.localhost/health
+curl -f http://api.crm.localhost/health
+```
+
+### 🔄 **การจัดการ Lifecycle**
+
+#### Individual Stack Management
+```bash
+# Update เฉพาะ E-commerce
+cd ecommerce-platform
+git pull origin main
+docker-compose build
+docker-compose up -d
+
+# Restart เฉพาะ CRM (infrastructure ยังทำงานอยู่)
+cd crm-system
+docker-compose restart
+
+# Scale เฉพาะ Analytics
+cd analytics-dashboard
+docker-compose up -d --scale analytics-worker=3
+
+# Stop เฉพาะ Inventory (อื่นๆ ยังทำงาน)
+cd inventory-management
+docker-compose down
+```
+
+#### Full Ecosystem Management
+```bash
+# Stop ทุกอย่างยกเว้น infrastructure
+cd ecommerce-platform && docker-compose down
+cd crm-system && docker-compose down
+cd inventory-management && docker-compose down
+cd analytics-dashboard && docker-compose down
+
+# Infrastructure ยังทำงานอยู่
+cd centralized-services && docker-compose ps
+
+# Start ทุกอย่างกลับ
+cd ecommerce-platform && docker-compose up -d
+cd crm-system && docker-compose up -d
+cd inventory-management && docker-compose up -d
+cd analytics-dashboard && docker-compose up -d
+```
+
+### 🛡️ **Security & Isolation**
+
+#### Database Isolation
+```sql
+-- แต่ละโครงการมี database และ user แยกกัน
+-- E-commerce ไม่สามารถเข้าถึง CRM database ได้
+
+-- ตัวอย่าง: E-commerce user
+GRANT CONNECT ON DATABASE ecommerce_db TO ecommerce_user;
+REVOKE CONNECT ON DATABASE crm_db FROM ecommerce_user;
+REVOKE CONNECT ON DATABASE inventory_db FROM ecommerce_user;
+```
+
+#### Network Isolation Options
+```yaml
+# หากต้องการ isolation เพิ่มเติม สามารถสร้าง subnet แยกได้
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+
+  ecommerce-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+```
+
+#### Environment Variables Security
+```bash
+# ใช้ Docker secrets หรือ external secret management
+# แทนการใส่ password ใน .env files
+
+# ตัวอย่าง Docker secrets
+echo "ecommerce_secure_pass" | docker secret create ecommerce_db_password -
+```
+
+### 📊 **Monitoring & Observability**
+
+#### Container Monitoring
+```bash
+# ดู resource usage ของทุก stack
+docker stats
+
+# ดู logs แยกตาม stack
+docker-compose -f ecommerce-platform/docker-compose.yml logs -f
+docker-compose -f crm-system/docker-compose.yml logs -f
+
+# Health checks
+curl -f http://traefik.localhost:8080/api/http/services
+```
+
+#### Service Discovery
+```bash
+# ดู services ทั้งหมดใน Traefik
+curl -s http://traefik.localhost:8080/api/http/routers | jq '.[].rule'
+
+# ดู containers ใน network
+docker network inspect proxy-network --format='{{range .Containers}}{{.Name}}: {{.IPv4Address}}{{"\n"}}{{end}}'
+```
+
+### 🎯 **Use Cases & Benefits**
+
+#### Team Development
+```bash
+# Team Frontend: ทำงานเฉพาะ UI
+cd ecommerce-platform/frontend
+npm run dev  # local development
+
+# Team Backend: ทำงานเฉพาะ API
+cd ecommerce-platform/backend
+docker-compose up -d  # ใช้ shared infrastructure
+
+# Team DevOps: จัดการ infrastructure
+cd centralized-services
+docker-compose up -d  # maintain shared services
+```
+
+#### Gradual Migration
+```bash
+# Migration scenario: ย้าย legacy system ทีละส่วน
+
+# Step 1: เริ่มด้วย authentication
+cd centralized-services && docker-compose up -d
+
+# Step 2: เพิ่ม new microservice
+cd new-service && docker-compose up -d
+
+# Step 3: ย้าย legacy service ทีละตัว
+cd legacy-service-migrated && docker-compose up -d
+cd legacy-service-original && docker-compose down  # ปิดเก่า
+```
+
+#### Environment Management
+```bash
+# Development environment
+export COMPOSE_PROJECT_NAME=dev
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Staging environment
+export COMPOSE_PROJECT_NAME=staging
+docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+# Production environment
+export COMPOSE_PROJECT_NAME=prod
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 ## ตัวอย่างโครงการ

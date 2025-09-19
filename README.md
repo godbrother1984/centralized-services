@@ -5,7 +5,7 @@
 -- Description: ระบบบริการส่วนกลางพร้อม OAuth2/OIDC Redirect Flow และ Production Security
 
 ## Overview
-ระบบบริการส่วนกลางที่ประกอบด้วย Keycloak Authentication Service และ PostgreSQL Database ผ่าน Traefik Reverse Proxy พร้อม **OAuth2/OIDC Redirect Flow**, **Security Headers** และการป้องกัน **Clickjacking** สำหรับให้บริการระบบต่างๆ ในองค์กรอย่างปลอดภัย
+ระบบบริการส่วนกลางที่ประกอบด้วย Keycloak Authentication Service, n8n Workflow Automation และ PostgreSQL Database ผ่าน Traefik Reverse Proxy พร้อม **OAuth2/OIDC Redirect Flow**, **Security Headers** และการป้องกัน **Clickjacking** สำหรับให้บริการระบบต่างๆ ในองค์กรอย่างปลอดภัย
 
 ## Services
 
@@ -36,6 +36,14 @@
 - **URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin
 - **ข้อมูลเข้าสู่ระบบ Admin**: admin / Kc_Admin_SecureP@ss2024!
+
+### 5. n8n Workflow Automation Platform
+- **Container**: `n8n`
+- **Version**: Latest
+- **URL**: http://n8n.localhost
+- **ข้อมูลเข้าสู่ระบบ**: admin / N8n_Admin_SecureP@ss2024!
+- **Database**: n8n_db (ใช้ Central PostgreSQL)
+- **Features**: Workflow automation, API integrations, Webhooks, Scheduled tasks
 
 
 ## การเริ่มใช้งาน (Quick Start)
@@ -69,6 +77,7 @@ docker-compose down -v
 ### 3. การเข้าถึงบริการ
 - **Traefik Dashboard**: http://traefik.localhost/dashboard/ (admin:secret)
 - **Keycloak Admin**: http://auth.localhost/admin/ (admin:Kc_Admin_SecureP@ss2024!)
+- **n8n Workflow Automation**: http://n8n.localhost/ (admin:N8n_Admin_SecureP@ss2024!)
 - **Central PostgreSQL**: `psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres"`
 
 ## การเข้าถึงฐานข้อมูล

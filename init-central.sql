@@ -109,6 +109,36 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- สร้าง sequence สำหรับ audit
 CREATE SEQUENCE IF NOT EXISTS audit_id_seq;
 
+-- สร้าง database และ user สำหรับ n8n workflow automation
+CREATE USER n8n_user WITH PASSWORD 'N8n_Secure_P@ssw0rd_2024!';
+CREATE DATABASE n8n_db OWNER n8n_user;
+
+-- ให้สิทธิ์การใช้งาน database
+GRANT ALL PRIVILEGES ON DATABASE n8n_db TO n8n_user;
+GRANT CREATE ON DATABASE n8n_db TO n8n_user;
+
+-- เข้าใช้ n8n database เพื่อตั้งค่าเพิ่มเติม
+\c n8n_db
+
+-- ให้สิทธิ์ schema public
+GRANT ALL ON SCHEMA public TO n8n_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO n8n_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO n8n_user;
+
+-- ตั้งค่า default privileges สำหรับ tables และ sequences ที่จะสร้างใหม่
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO n8n_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO n8n_user;
+
+-- สร้าง extensions ที่ n8n อาจต้องการ
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ตั้งค่า timezone
+SET timezone = 'Asia/Bangkok';
+
+-- กลับไปยัง postgres database เพื่อสร้าง user อื่นๆ (ถ้ามี)
+\c postgres
+
 -- Log การเริ่มต้น
 DO $$
 BEGIN
@@ -118,5 +148,8 @@ BEGIN
     RAISE NOTICE 'Timezone: %', current_setting('timezone');
     RAISE NOTICE 'Available Extensions: uuid-ossp, pgcrypto, citext, hstore';
     RAISE NOTICE 'Common functions created: update_updated_at_column, audit_trigger_function';
+    RAISE NOTICE 'n8n database and user created successfully';
+    RAISE NOTICE 'n8n_db: Database for n8n workflow automation';
+    RAISE NOTICE 'n8n_user: User with full access to n8n_db';
 END
 $$;

@@ -8,6 +8,7 @@
 127.0.0.1    auth.localhost
 127.0.0.1    traefik.localhost
 127.0.0.1    db.localhost
+127.0.0.1    n8n.localhost
 ```
 
 ## สำหรับ macOS/Linux
@@ -23,6 +24,7 @@ sudo nano /etc/hosts
 127.0.0.1    auth.localhost
 127.0.0.1    traefik.localhost
 127.0.0.1    db.localhost
+127.0.0.1    n8n.localhost
 ```
 
 ## การทดสอบ
@@ -31,6 +33,7 @@ sudo nano /etc/hosts
 
 - **Traefik Dashboard**: http://traefik.localhost:8080
 - **Keycloak**: http://auth.localhost
+- **n8n Workflow Automation**: http://n8n.localhost
 - **PostgreSQL**: `psql -h db.localhost -p 5432 -U postgres`
 
 ## หมายเหตุ

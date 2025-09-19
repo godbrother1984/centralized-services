@@ -26,7 +26,9 @@
       "Bash(do curl:*)",
       "Bash(for i in {1..20})",
       "Bash(seq:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(chmod:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []

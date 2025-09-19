@@ -44,6 +44,13 @@ services:
       # - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.period=30s"
       # - "traefik.http.middlewares.dashboard-rate-limit.ratelimit.burst=5"
 
+      # Global CORS Configuration สำหรับ external applications
+      - "traefik.http.middlewares.global-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      - "traefik.http.middlewares.global-cors.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization,X-API-Key,X-Auth-Token"
+      - "traefik.http.middlewares.global-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005,http://localhost:3006,http://localhost:3007,http://localhost:3008,http://localhost:3009,http://assetflow.localhost"
+      - "traefik.http.middlewares.global-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.global-cors.headers.accesscontrolmaxage=86400"
+
   # PostgreSQL Database สำหรับ Keycloak (Private - Internal Only)
   keycloak-postgresql:
     image: postgres:15
@@ -125,12 +132,14 @@ services:
       - keycloak-internal-network
     restart: unless-stopped
     command: ["start-dev"]
+    volumes:
+      - ./keycloak-themes:/opt/keycloak/themes
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy-network"
       - "traefik.http.routers.keycloak.rule=Host(`auth.localhost`)"
       - "traefik.http.routers.keycloak.entrypoints=web"
-      - "traefik.http.routers.keycloak.middlewares="
+      - "traefik.http.routers.keycloak.middlewares=keycloak-cors,keycloak-security"
       - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
       # ปิด HTTPS redirect สำหรับ development เพื่อหลีกเลี่ยง SSL certificate errors
       # - "traefik.http.routers.keycloak-secure.rule=Host(`auth.localhost`)"
@@ -141,6 +150,12 @@ services:
       # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.average=10"
       # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.period=30s"
       # - "traefik.http.middlewares.keycloak-rate-limit.ratelimit.burst=5"
+      # CORS Configuration สำหรับ AssetFlow และระบบอื่นๆ
+      - "traefik.http.middlewares.keycloak-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.keycloak-cors.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+      - "traefik.http.middlewares.keycloak-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005,http://assetflow.localhost"
+      - "traefik.http.middlewares.keycloak-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.keycloak-cors.headers.accesscontrolmaxage=86400"
       # Production Security Headers - Keycloak จะจัดการ X-Frame-Options และ CSP เอง
       - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.X-Content-Type-Options=nosniff"
       - "traefik.http.middlewares.keycloak-security.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
@@ -152,11 +167,81 @@ services:
       retries: 5
       start_period: 60s
 
+  # n8n Workflow Automation Platform
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    environment:
+      # Database Configuration (ใช้ Central PostgreSQL)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: central-postgresql
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n_db
+      DB_POSTGRESDB_USER: n8n_user
+      DB_POSTGRESDB_PASSWORD: N8n_Secure_P@ssw0rd_2024!
+      DB_POSTGRESDB_SCHEMA: public
+
+      # n8n Configuration
+      N8N_HOST: n8n.localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://n8n.localhost
+
+      # Security Configuration
+      N8N_BASIC_AUTH_ACTIVE: true
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: N8n_Admin_SecureP@ss2024!
+
+      # Performance & Features
+      EXECUTIONS_PROCESS: main
+      N8N_METRICS: true
+      N8N_LOG_LEVEL: info
+
+      # Timezone
+      GENERIC_TIMEZONE: Asia/Bangkok
+      TZ: Asia/Bangkok
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      central-postgresql:
+        condition: service_healthy
+    networks:
+      - proxy-network
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-network"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.localhost`)"
+      - "traefik.http.routers.n8n.entrypoints=web"
+      - "traefik.http.routers.n8n.middlewares=n8n-cors,n8n-security"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+
+      # CORS Configuration สำหรับ n8n API และ Webhook
+      - "traefik.http.middlewares.n8n-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      - "traefik.http.middlewares.n8n-cors.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization,X-N8N-API-KEY"
+      - "traefik.http.middlewares.n8n-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005,http://n8n.localhost"
+      - "traefik.http.middlewares.n8n-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.n8n-cors.headers.accesscontrolmaxage=86400"
+
+      # Security Headers
+      - "traefik.http.middlewares.n8n-security.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.n8n-security.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.n8n-security.headers.customresponseheaders.X-Frame-Options=SAMEORIGIN"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 
 volumes:
   keycloak_postgresql_data:
     driver: local
   central_postgresql_data:
+    driver: local
+  n8n_data:
     driver: local
   letsencrypt_data:
     driver: local
