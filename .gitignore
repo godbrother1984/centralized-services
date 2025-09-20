@@ -183,16 +183,32 @@ coverage/
 *.coverage
 
 # ===== SECRETS & SENSITIVE DATA =====
-# Secrets
-secrets/
-secret/
-*.secret
-*.private
+# Secrets directory (but keep README)
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+!secrets/README.md
+
+# Environment files with sensitive data
+.env.production
+.env.local
+.env.staging
 
 # API keys and tokens
 *api-key*
 *token*
 *secret*
+
+# SSL certificates and keys
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Database dumps with potentially sensitive data
+*-export.json
+*-dump.sql
 
 # ===== DEVELOPMENT TOOLS =====
 # Docker development files

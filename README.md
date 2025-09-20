@@ -1,8 +1,8 @@
 # Centralized Services with Traefik Proxy
 -- File: centralized-services/README.md
--- Version: 2.1.0
--- Date: 2025-09-18
--- Description: ระบบบริการส่วนกลางพร้อม OAuth2/OIDC Redirect Flow และ Production Security
+-- Version: 2.2.0
+-- Date: 2025-09-19
+-- Description: ระบบบริการส่วนกลางพร้อม C.I.Group Corporate Theme และ n8n Workflow Automation
 
 ## Overview
 ระบบบริการส่วนกลางที่ประกอบด้วย Keycloak Authentication Service, n8n Workflow Automation และ PostgreSQL Database ผ่าน Traefik Reverse Proxy พร้อม **OAuth2/OIDC Redirect Flow**, **Security Headers** และการป้องกัน **Clickjacking** สำหรับให้บริการระบบต่างๆ ในองค์กรอย่างปลอดภัย
@@ -32,10 +32,11 @@
 
 ### 4. Keycloak Authentication Server
 - **Container**: `keycloak`
-- **Version**: 24.0
+- **Version**: 24.0.5
 - **URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin
 - **ข้อมูลเข้าสู่ระบบ Admin**: admin / Kc_Admin_SecureP@ss2024!
+- **Corporate Theme**: C.I.Group PCL. corporate theme with Thai localization
 
 ### 5. n8n Workflow Automation Platform
 - **Container**: `n8n`
@@ -46,33 +47,30 @@
 - **Features**: Workflow automation, API integrations, Webhooks, Scheduled tasks
 
 
-## การเริ่มใช้งาน (Quick Start)
+## 🚀 **Getting Started**
 
-> 📖 **สำหรับคู่มือการติดตั้งที่ละเอียด**: ดูไฟล์ [INSTALLATION.md](INSTALLATION.md)
+### **Choose Your Deployment Type:**
 
-### 1. ตั้งค่า Local Hosts
-ดูไฟล์ `hosts-setup.md` สำหรับการตั้งค่า local domains
-
-### 2. เริ่มต้นบริการ
+#### **🏃‍♂️ Quick Start (Development/Testing)**
 ```bash
-# เริ่มบริการทั้งหมด
+# 15-minute development setup
+git clone <repository-url>
+cd centralized-services
 docker-compose up -d
-
-# ตรวจสอบสถานะบริการ
-docker-compose ps
-
-# ดูบันทึกการทำงาน
-docker-compose logs -f traefik
-docker-compose logs -f keycloak-postgresql
-docker-compose logs -f central-postgresql
-docker-compose logs -f keycloak
-
-# หยุดบริการ
-docker-compose down
-
-# รีเซ็ตข้อมูลทั้งหมด (รวมฐานข้อมูล)
-docker-compose down -v
 ```
+📖 **Full Guide**: [QUICK-START.md](QUICK-START.md)
+
+#### **🏭 Production Deployment**
+```bash
+# Complete production deployment with SSL & security
+```
+📖 **Full Guide**: [PRODUCTION-DEPLOY-GUIDE.md](PRODUCTION-DEPLOY-GUIDE.md)
+
+#### **⚙️ Advanced Configuration**
+```bash
+# Advanced features: monitoring, backup, performance tuning
+```
+📖 **Full Guide**: [ADVANCED-CONFIGURATION.md](ADVANCED-CONFIGURATION.md)
 
 ### 3. การเข้าถึงบริการ
 - **Traefik Dashboard**: http://traefik.localhost/dashboard/ (admin:secret)
@@ -167,6 +165,12 @@ DB_PASSWORD=your_project_password
 - URL: http://auth.localhost/admin
 - Username: admin
 - Password: Kc_Admin_SecureP@ss2024!
+
+### C.I.Group Corporate Theme
+- **Theme Name**: `cigroup-theme`
+- **Features**: Thai localization, modern design, responsive
+- **Configuration**: ผ่าน environment variables ใน `.env`
+- **คู่มือ**: ดูไฟล์ `docs/reference/KEYCLOAK-THEME-SETUP.md`
 
 ### การตั้งค่า Realm และ Client
 1. **สร้าง Realm ใหม่**:
@@ -286,7 +290,7 @@ docker-compose logs --tail=50
 - ปัญหา **Session fixation**
 - ถูกบล็อกโดย **CSP frame-ancestors**
 
-> 📖 **คู่มือแก้ปัญหา CSP**: ดูไฟล์ `fix-authentication-flow.md`
+> 📖 **คู่มือแก้ปัญหา CSP**: ดูไฟล์ `docs/archive/fix-authentication-flow.md`
 
 ### Security Headers
 - `X-Frame-Options: DENY` - ป้องกัน clickjacking

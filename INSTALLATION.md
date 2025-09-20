@@ -829,6 +829,6 @@ crontab -l
 
 ## ขั้นตอนถัดไป
 1. อ่าน [README.md](README.md) สำหรับรายละเอียดการใช้งาน
-2. ดู [CLAUDE.md](CLAUDE.md) สำหรับคู่มือ development
+2. ดู [docs/reference/CLAUDE.md](docs/reference/CLAUDE.md) สำหรับคู่มือ development
 3. ศึกษาการเชื่อมต่อกับแอปพลิเคชันของคุณ
 4. ตั้งค่า backup schedules สำหรับ production

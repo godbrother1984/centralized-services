@@ -194,15 +194,6 @@
                         </div>
                     </#if>
 
-                    <!-- Development Info -->
-                    <div class="debug-info">
-                        <p class="debug-title"><strong>สำหรับทดสอบ:</strong></p>
-                        <p class="debug-text">
-                            Demo account: demo@cigroup.co.th / demo123<br/>
-                            ระบบใช้ Keycloak Authentication<br/>
-                            Realm: ${realm.name}
-                        </p>
-                    </div>
                 </div>
             </div>
         </div>

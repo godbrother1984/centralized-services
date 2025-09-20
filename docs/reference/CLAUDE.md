@@ -14,7 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `keycloak_db`: ฐานข้อมูลสำหรับ Keycloak authentication data
 - **Central PostgreSQL Database**: PostgreSQL 15 ผ่าน Traefik เท่านั้น สำหรับโครงการอื่นๆ
   - `postgres`: ฐานข้อมูลส่วนกลางสำหรับโครงการต่างๆ
-- **Keycloak Authentication Server**: Version 24.0 สำหรับ identity และ access management
+  - `n8n_db`: ฐานข้อมูลสำหรับ n8n workflow automation
+- **Keycloak Authentication Server**: Version 24.0.5 สำหรับ identity และ access management
+  - รองรับ C.I.Group Corporate Theme
+- **n8n Workflow Automation**: Latest version สำหรับการทำงานอัตโนมัติ
 
 ### Database Configuration
 #### Keycloak Database (Private)
@@ -60,7 +63,7 @@ docker-compose down -v
 docker exec -it keycloak-postgresql psql -U keycloak_user -d keycloak_db
 
 # เชื่อมต่อ Central database (ผ่าน Traefik proxy เท่านั้น)
-psql -h localhost -p 5432 -U postgres -d postgres
+psql -h localhost -p 15432 -U postgres -d postgres
 
 # สำรองข้อมูล Keycloak database
 docker exec keycloak-postgresql pg_dump -U keycloak_user keycloak_db > keycloak_backup.sql
@@ -100,17 +103,18 @@ docker cp keycloak:/tmp/realm-export.json ./realm-backup.json
 - **การเชื่อมต่อ**: `docker exec -it keycloak-postgresql psql -U keycloak_user -d keycloak_db`
 
 ### Central PostgreSQL Database (Traefik Only)
-- **Host**: db.localhost:5432 (ผ่าน Traefik proxy เท่านั้น)
+- **Host**: localhost:15432 (ผ่าน Traefik proxy เท่านั้น)
 - **Database**: postgres
 - **Username**: postgres
 - **Password**: postgres_admin_password
-- **การเชื่อมต่อ**: `psql "postgresql://postgres:postgres_admin_password@db.localhost:5432/postgres"`
+- **การเชื่อมต่อ**: `psql -h localhost -p 15432 -U postgres -d postgres`
 
 ### Keycloak Authentication
 - **URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin
 - **Admin Username**: admin
 - **Admin Password**: Kc_Admin_SecureP@ss2024!
+- **Corporate Theme**: cigroup-theme (C.I.Group PCL. themed login)
 
 
 ## Central PostgreSQL Database Connection Guide
@@ -118,7 +122,7 @@ docker cp keycloak:/tmp/realm-export.json ./realm-backup.json
 ### การสร้าง Database และ User สำหรับโครงการใหม่
 ```bash
 # เชื่อมต่อ Central PostgreSQL ในฐานะ admin
-psql -h localhost -p 5432 -U postgres -d postgres
+psql -h localhost -p 15432 -U postgres -d postgres
 
 # สร้าง database ใหม่สำหรับโครงการ
 CREATE DATABASE my_project_db;
@@ -147,7 +151,7 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   host: 'localhost',
-  port: 5432,
+  port: 15432, // ผ่าน Traefik TCP Router
   database: 'my_project_db',
   user: 'my_project_user',
   password: 'my_project_password',
@@ -169,7 +173,7 @@ from psycopg2 import pool
 # Single connection
 conn = psycopg2.connect(
     host="localhost",
-    port="5432",
+    port="15432",  # ผ่าน Traefik TCP Router
     database="my_project_db",
     user="my_project_user",
     password="my_project_password"
@@ -179,7 +183,7 @@ conn = psycopg2.connect(
 connection_pool = psycopg2.pool.SimpleConnectionPool(
     1, 20,
     host="localhost",
-    port="5432",
+    port="15432",  # ผ่าน Traefik TCP Router
     database="my_project_db",
     user="my_project_user",
     password="my_project_password"
@@ -188,7 +192,7 @@ connection_pool = psycopg2.pool.SimpleConnectionPool(
 
 #### Java (JDBC)
 ```java
-String url = "jdbc:postgresql://db.localhost:5432/my_project_db";
+String url = "jdbc:postgresql://localhost:15432/my_project_db";
 String username = "my_project_user";
 String password = "my_project_password";
 
@@ -197,7 +201,7 @@ Connection connection = DriverManager.getConnection(url, username, password);
 
 #### C# (.NET)
 ```csharp
-string connectionString = "Host=localhost;Port=5432;Database=my_project_db;Username=my_project_user;Password=my_project_password";
+string connectionString = "Host=localhost;Port=15432;Database=my_project_db;Username=my_project_user;Password=my_project_password";
 
 using var connection = new NpgsqlConnection(connectionString);
 connection.Open();
@@ -210,7 +214,7 @@ services:
     image: my-app:latest
     environment:
       DB_HOST: localhost
-      DB_PORT: 5432
+      DB_PORT: 15432
       DB_NAME: my_project_db
       DB_USER: my_project_user
       DB_PASSWORD: my_project_password
@@ -236,10 +240,15 @@ KEYCLOAK_CLIENT_SECRET=your-client-secret
 
 # Central PostgreSQL Configuration (สำหรับโครงการอื่น)
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=15432
 DB_NAME=my_project_db
 DB_USER=my_project_user
 DB_PASSWORD=my_project_password
+
+# n8n Workflow Automation Configuration
+N8N_URL=http://n8n.localhost
+N8N_USERNAME=admin
+N8N_PASSWORD=N8n_Admin_SecureP@ss2024!
 
 # หมายเหตุ: Keycloak PostgreSQL ไม่สามารถเข้าถึงจากภายนอกได้
 # ใช้เฉพาะผ่าน Docker container และ Keycloak internal เท่านั้น

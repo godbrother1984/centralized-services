@@ -1,0 +1,55 @@
+# Example DateTime API Docker Compose
+# File: example-api/docker-compose.yml
+# Version: 1.0.0
+# Date: 2025-09-19
+
+
+services:
+  example-api:
+    build: .
+    container_name: example-datetime-api
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    networks:
+      - proxy-network
+    # ไม่เปิด ports เพื่อบังคับให้ผ่าน Traefik เท่านั้น
+    # ports:
+    #   - "3000:3000"  # ปิดการเข้าถึงโดยตรง
+    labels:
+      # เปิดใช้ Traefik auto-discovery
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-network"
+
+      # Router configuration สำหรับ API
+      - "traefik.http.routers.example-api.rule=Host(`api.localhost`)"
+      - "traefik.http.routers.example-api.entrypoints=web"
+      - "traefik.http.services.example-api.loadbalancer.server.port=3000"
+
+      # CORS middleware สำหรับ cross-origin requests
+      - "traefik.http.routers.example-api.middlewares=example-api-cors,example-api-security"
+
+      # CORS configuration
+      - "traefik.http.middlewares.example-api-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.example-api-cors.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization,X-API-Key"
+      - "traefik.http.middlewares.example-api-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005"
+      - "traefik.http.middlewares.example-api-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.example-api-cors.headers.accesscontrolmaxage=86400"
+
+      # Security headers
+      - "traefik.http.middlewares.example-api-security.headers.customresponseheaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.example-api-security.headers.customresponseheaders.X-Frame-Options=DENY"
+      - "traefik.http.middlewares.example-api-security.headers.customresponseheaders.Referrer-Policy=strict-origin-when-cross-origin"
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); const req = http.request({hostname: 'localhost', port: 3000, path: '/health', method: 'GET'}, (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network

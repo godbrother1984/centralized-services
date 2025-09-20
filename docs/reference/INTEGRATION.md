@@ -1,18 +1,19 @@
 # คู่มือการเชื่อมต่อระบบ (Integration Guide)
 -- File: centralized-services/INTEGRATION.md
--- Version: 2.1.0
--- Date: 2025-09-18
--- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Keycloak Authentication (OAuth2/OIDC Redirect Flow) และ Central PostgreSQL Database
+-- Version: 2.2.0
+-- Date: 2025-09-19
+-- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Traefik Auto-Discovery, Keycloak Authentication และ Central PostgreSQL Database
 
 ## สารบัญ
 1. [ภาพรวมการเชื่อมต่อ](#ภาพรวมการเชื่อมต่อ)
-2. [การเตรียมความพร้อม](#การเตรียมความพร้อม)
-3. [การเชื่อมต่อ Keycloak Authentication](#การเชื่อมต่อ-keycloak-authentication)
-4. [การเชื่อมต่อ Central PostgreSQL](#การเชื่อมต่อ-central-postgresql)
-5. [การทำงานร่วมกันระหว่าง Docker Stacks](#การทำงานร่วมกันระหว่าง-docker-stacks)
-6. [ตัวอย่างโครงการ](#ตัวอย่างโครงการ)
-7. [Best Practices](#best-practices)
-8. [การแก้ไขปัญหา](#การแก้ไขปัญหา)
+2. [Traefik Auto-Discovery](#traefik-auto-discovery)
+3. [การเตรียมความพร้อม](#การเตรียมความพร้อม)
+4. [การเชื่อมต่อ Keycloak Authentication](#การเชื่อมต่อ-keycloak-authentication)
+5. [การเชื่อมต่อ Central PostgreSQL](#การเชื่อมต่อ-central-postgresql)
+6. [การทำงานร่วมกันระหว่าง Docker Stacks](#การทำงานร่วมกันระหว่าง-docker-stacks)
+7. [ตัวอย่างโครงการ](#ตัวอย่างโครงการ)
+8. [Best Practices](#best-practices)
+9. [การแก้ไขปัญหา](#การแก้ไขปัญหา)
 
 ## ภาพรวมการเชื่อมต่อ
 
@@ -32,7 +33,169 @@
 │    Keycloak     │ │      n8n        │ │ Central PostgreSQL│
 │ Authentication  │ │ Workflow Auto   │ │    Database     │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
- auth.localhost      n8n.localhost      db.localhost:5432
+ auth.localhost      n8n.localhost      localhost:15432
+```
+
+## Traefik Auto-Discovery
+
+### 🚀 **การทำงานอัตโนมัติของ Traefik**
+
+Traefik จะ **auto-discover** API container ใหม่และจัดการ reverse proxy อัตโนมัติเมื่อ:
+
+1. **Container อยู่ใน network เดียวกัน** (`proxy-network`)
+2. **มี labels ที่จำเป็น** สำหรับการ routing
+3. **Traefik monitor Docker socket** แบบ real-time
+
+### ✅ **ตัวอย่างการเพิ่ม API Container**
+
+```yaml
+# docker-compose.yml สำหรับ API ใหม่
+version: '3.8'
+services:
+  my-api:
+    image: my-api:latest
+    container_name: my-api
+    environment:
+      # Database connection ผ่าน Traefik
+      DB_HOST: localhost
+      DB_PORT: 15432
+      DB_NAME: my_project_db
+      DB_USER: my_project_user
+      DB_PASSWORD: my_project_password
+
+      # Keycloak authentication
+      KEYCLOAK_URL: http://auth.localhost
+      KEYCLOAK_REALM: my-realm
+      KEYCLOAK_CLIENT_ID: my-api-client
+    networks:
+      - proxy-network  # ต้องอยู่ใน network เดียวกับ Traefik
+    labels:
+      # เปิดใช้ Traefik auto-discovery
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-network"
+
+      # Router configuration - Traefik จะ auto-detect
+      - "traefik.http.routers.my-api.rule=Host(\`api.localhost\`)"
+      - "traefik.http.routers.my-api.entrypoints=web"
+      - "traefik.http.services.my-api.loadbalancer.server.port=3000"
+
+      # CORS middleware สำหรับ frontend
+      - "traefik.http.routers.my-api.middlewares=api-cors"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:3001"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowcredentials=true"
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+```
+
+### 🔄 **ขั้นตอนการ Auto-Discovery**
+
+1. **เริ่ม container**:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **Traefik จะ detect ทันที**:
+   - อ่าน labels จาก container
+   - สร้าง routing rules อัตโนมัติ
+   - เพิ่มใน load balancer
+
+3. **เข้าถึงได้ทันที**:
+   ```bash
+   curl http://api.localhost/health
+   ```
+
+### 📋 **Labels ที่จำเป็น**
+
+```yaml
+labels:
+  # เปิดใช้ Traefik (จำเป็น)
+  - "traefik.enable=true"
+
+  # กำหนด network (ถ้ามีหลาย network)
+  - "traefik.docker.network=proxy-network"
+
+  # Router - กำหนด domain และ entrypoint
+  - "traefik.http.routers.my-api.rule=Host(\`api.localhost\`)"
+  - "traefik.http.routers.my-api.entrypoints=web"
+
+  # Service - บอก port ที่ API listen
+  - "traefik.http.services.my-api.loadbalancer.server.port=3000"
+
+  # Middleware (optional)
+  - "traefik.http.routers.my-api.middlewares=api-cors,api-auth"
+```
+
+### 🌐 **Path-based Routing**
+
+```yaml
+# สำหรับ API หลายตัวใน domain เดียว
+labels:
+  - "traefik.http.routers.user-api.rule=Host(\`api.localhost\`) && PathPrefix(\`/users\`)"
+  - "traefik.http.routers.order-api.rule=Host(\`api.localhost\`) && PathPrefix(\`/orders\`)"
+  - "traefik.http.routers.product-api.rule=Host(\`api.localhost\`) && PathPrefix(\`/products\`)"
+```
+
+### ⚡ **Real-time Updates**
+
+Traefik **ไม่ต้อง restart** เมื่อมี container ใหม่:
+- ✅ เพิ่ม container → Traefik detect ทันที
+- ✅ ลบ container → Traefik remove route ทันที
+- ✅ แก้ไข labels → Traefik update ทันที
+
+### 📱 **ตัวอย่าง Frontend + API Integration**
+
+```yaml
+# Frontend container
+frontend:
+  image: my-frontend:latest
+  networks:
+    - proxy-network
+  labels:
+    - "traefik.enable=true"
+    - "traefik.http.routers.frontend.rule=Host(\`app.localhost\`)"
+    - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+  # ไม่เปิด ports - บังคับให้ผ่าน Traefik
+
+# API container
+api:
+  image: my-api:latest
+  networks:
+    - proxy-network
+  labels:
+    - "traefik.enable=true"
+    - "traefik.http.routers.api.rule=Host(\`api.localhost\`)"
+    - "traefik.http.services.api.loadbalancer.server.port=8000"
+    - "traefik.http.routers.api.middlewares=api-cors,api-security"
+  # ไม่เปิด ports - บังคับให้ผ่าน Traefik
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
+```
+
+### 🔒 **Security Best Practices**
+- ✅ **ไม่เปิด ports ใน docker-compose** - บังคับให้ผ่าน Traefik
+- ✅ **ใช้ internal networks** - containers สื่อสารกันภายใน
+- ✅ **Security middleware** - headers และ CORS protection
+- ✅ **Container isolation** - แยก network ระหว่าง services
+
+### 🔍 **ตรวจสอบ Auto-Discovery**
+
+```bash
+# ดู Traefik dashboard
+open http://traefik.localhost/dashboard/
+
+# ตรวจสอบ services ที่ discover แล้ว
+curl http://traefik.localhost/api/http/services
+
+# ตรวจสอบ routers
+curl http://traefik.localhost/api/http/routers
 ```
 
 #### Integration กับโครงการภายนอก
@@ -43,7 +206,7 @@
 └─────────────────┘     │    ┌─────────────────┐    ┌─────────────────┐
                         ├───▶│     Traefik     │───▶│    Keycloak     │
 ┌─────────────────┐     │    │ Reverse Proxy   │    │ Authentication  │
-│   Your Project  │─────┘    │ (Centralized)   │    │ (Centralized)   │
+│   Your Project  │─────┘    │ (Auto-Discovery)│    │ (Centralized)   │
 │   (Backend API) │          └─────────┬───────┘    └─────────────────┘
 └─────────────────┘                    │
                                        ▼
@@ -90,7 +253,7 @@ psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c
 - **Development URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin/
 - **Username**: admin
-- **Password**: 9yflj;oouhvvd0kdsohk
+- **Password**: Kc_Admin_SecureP@ss2024!
 - **Realm**: master (หรือ realm ที่สร้างขึ้น)
 
 ### Central PostgreSQL Database
