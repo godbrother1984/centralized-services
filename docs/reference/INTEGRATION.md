@@ -1,8 +1,8 @@
 # คู่มือการเชื่อมต่อระบบ (Integration Guide)
--- File: centralized-services/INTEGRATION.md
--- Version: 2.2.0
--- Date: 2025-09-19
--- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Traefik Auto-Discovery, Keycloak Authentication และ Central PostgreSQL Database
+-- File: centralized-services/docs/reference/INTEGRATION.md
+-- Version: 2.3.0
+-- Date: 2025-09-20
+-- Description: คู่มือการเชื่อมต่อโครงการใหม่เข้ากับ Traefik Auto-Discovery, Keycloak Authentication, n8n Workflow Automation และ Central PostgreSQL Database
 
 ## สารบัญ
 1. [ภาพรวมการเชื่อมต่อ](#ภาพรวมการเชื่อมต่อ)
@@ -215,13 +215,14 @@ curl http://traefik.localhost/api/http/routers
                             │    Database     │
                             │ (Centralized)   │
                             └─────────────────┘
-                          (via db.localhost:5432)
+                          (via localhost:15432)
 ```
 
 ### 🎯 Services URLs
-- **Keycloak Authentication**: `http://auth.localhost` (dev) / `https://auth.cigblusolutions.com` (prod)
-- **Central PostgreSQL**: `localhost:15432` (accessible via Traefik TCP proxy only)
-- **Traefik Dashboard**: `http://traefik.localhost/dashboard/` (login: admin/secret)
+- **Keycloak Authentication**: `http://auth.localhost` (dev) / `https://auth.yourdomain.com` (prod)
+- **n8n Workflow Automation**: `http://n8n.localhost` (dev) / `https://n8n.yourdomain.com` (prod)
+- **Central PostgreSQL**: `localhost:15432` (accessible via Traefik TCP Router only)
+- **Traefik Dashboard**: `http://traefik.localhost/dashboard/` (dev) / `https://traefik.yourdomain.com/dashboard/` (prod)
 
 ### 🔒 สิ่งสำคัญ: Database Security
 - **Central PostgreSQL เข้าถึงผ่าน Traefik เท่านั้น** - ไม่เปิด direct ports
@@ -244,7 +245,7 @@ docker compose ps
 
 # ทดสอบการเชื่อมต่อ
 curl -f http://auth.localhost/realms/master
-psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c "SELECT version();"
+psql "postgresql://postgres:[YOUR_DB_PASSWORD]@localhost:15432/postgres" -c "SELECT version();"
 ```
 
 ## 🔑 ข้อมูลการเข้าถึงระบบ
@@ -253,20 +254,20 @@ psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c
 - **Development URL**: http://auth.localhost
 - **Admin Console**: http://auth.localhost/admin/
 - **Username**: admin
-- **Password**: Kc_Admin_SecureP@ss2024!
+- **Password**: [ดูในไฟล์ secrets/keycloak_admin_password.txt]
 - **Realm**: master (หรือ realm ที่สร้างขึ้น)
 
 ### Central PostgreSQL Database
 - **Host**: localhost:15432 (ผ่าน Traefik TCP proxy)
 - **Database**: postgres (หรือ database ที่สร้างขึ้น)
 - **Username**: postgres
-- **Password**: postgres_admin_password
-- **Connection String**: `postgresql://postgres:postgres_admin_password@localhost:15432/postgres`
+- **Password**: [ดูในไฟล์ secrets/central_db_password.txt]
+- **Connection String**: `postgresql://postgres:[YOUR_DB_PASSWORD]@localhost:15432/postgres`
 
 ### Traefik Dashboard (ระบบส่วนกลาง)
 - **URL**: http://traefik.localhost/dashboard/
 - **Username**: admin
-- **Password**: secret
+- **Password**: [ดูในไฟล์ .env หรือใช้ basic auth ที่กำหนด]
 ```
 
 ### 2. เตรียม Network สำหรับโครงการใหม่
@@ -326,7 +327,7 @@ URL: http://auth.localhost/admin
 URL: https://auth.cigblusolutions.com/admin
 
 Username: admin
-Password: Kc_Admin_SecureP@ss2024!
+Password: [ดูในไฟล์ secrets/keycloak_admin_password.txt]
 ```
 
 #### สร้าง Realm สำหรับโครงการ
@@ -382,18 +383,44 @@ Password: Kc_Admin_SecureP@ss2024!
 3. delete_records - ลบข้อมูล
 ```
 
-#### สร้าง Users ตัวอย่าง
+#### สร้าง Service Account และ Users
+
+**🔐 Security Best Practice: ใช้ Service Account สำหรับระบบ**
+
 ```bash
-# Test Users
+# สร้าง Service Account สำหรับแอปพลิเคชัน
+1. ไปที่ Clients > your-app-client > Service Account
+2. Enable "Service Account Enabled"
+3. สร้าง dedicated service account user
+4. กำหนด roles ที่จำเป็นเท่านั้น
+
+# สร้าง Regular Users สำหรับทดสอบ
 1. Username: test.admin
-   Email: admin@myproject.com
-   Password: admin123
+   Email: admin@example.com
+   Password: [ให้ผู้ใช้สร้างเองผ่าน forgot password]
    Roles: admin, user
 
 2. Username: test.user
-   Email: user@myproject.com
-   Password: user123
+   Email: user@example.com
+   Password: [ให้ผู้ใช้สร้างเองผ่าน forgot password]
    Roles: user
+
+# ⚠️ หมายเหตุ: ไม่ควรใส่ password จริงในเอกสาร
+# ให้ใช้ "Forgot Password" flow หรือ temporary password
+```
+
+**🛡️ Database Access Security:**
+```bash
+# สร้าง dedicated database user สำหรับแต่ละแอปพลิเคชัน
+# ไม่ใช้ postgres root user ในการเชื่อมต่อ
+
+# ตัวอย่างการสร้าง application user:
+CREATE USER myapp_user WITH PASSWORD '[generate-strong-password]';
+CREATE DATABASE myapp_db OWNER myapp_user;
+GRANT CONNECT ON DATABASE myapp_db TO myapp_user;
+
+# ให้สิทธิ์เฉพาะที่จำเป็น - หลักการ Principle of Least Privilege
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO myapp_user;
 ```
 
 ### 2. Frontend Integration
@@ -897,7 +924,7 @@ n8n เป็น workflow automation platform ที่รวมอยู่ใ�
 #### การเข้าถึง n8n
 - **URL**: http://n8n.localhost
 - **Username**: admin
-- **Password**: N8n_Admin_SecureP@ss2024!
+- **Password**: [ดูในไฟล์ secrets/n8n_admin_password.txt]
 - **Database**: n8n_db (ใช้ Central PostgreSQL)
 
 ### 🚀 **การใช้งาน n8n กับโครงการของคุณ**
@@ -1017,7 +1044,7 @@ ORDER BY order_count DESC;
 # Environment variables ใน docker-compose.yml
 N8N_BASIC_AUTH_ACTIVE=true
 N8N_BASIC_AUTH_USER=admin
-N8N_BASIC_AUTH_PASSWORD=N8n_Admin_SecureP@ss2024!
+N8N_BASIC_AUTH_PASSWORD=[ดูในไฟล์ secrets/n8n_admin_password.txt]
 ```
 
 #### 2. Database Connection Security
@@ -1277,7 +1304,7 @@ docker-compose up -d
 # ตรวจสอบ infrastructure
 docker-compose ps
 curl -f http://auth.localhost/health/ready
-psql "postgresql://postgres:postgres_admin_password@localhost:15432/postgres" -c "SELECT version();"
+psql "postgresql://postgres:[YOUR_DB_PASSWORD]@localhost:15432/postgres" -c "SELECT version();"
 ```
 
 #### 2. เตรียม Databases สำหรับแต่ละโครงการ
@@ -1314,7 +1341,7 @@ EOF
 #### 3. สร้าง Keycloak Realms
 ```bash
 # เข้า Keycloak Admin Console: http://auth.localhost/admin/
-# Username: admin, Password: Kc_Admin_SecureP@ss2024!
+# Username: admin, Password: [ดูในไฟล์ secrets/keycloak_admin_password.txt]
 
 # สร้าง Realms:
 # 1. ecommerce-realm
@@ -1572,7 +1599,7 @@ services:
     image: postgres:15
     container_name: my-project-db-setup
     environment:
-      - PGPASSWORD=postgres_admin_password
+      - PGPASSWORD=[YOUR_DB_PASSWORD]
     networks:
       - proxy-network
     command: >
@@ -1602,14 +1629,14 @@ KEYCLOAK_URL=http://auth.localhost/
 KEYCLOAK_REALM=my-project-realm
 KEYCLOAK_CLIENT_ID_FRONTEND=my-project-frontend
 KEYCLOAK_CLIENT_ID_BACKEND=my-project-backend
-KEYCLOAK_CLIENT_SECRET=your-client-secret-from-keycloak
+KEYCLOAK_CLIENT_SECRET=[GET_FROM_KEYCLOAK_CLIENT_CREDENTIALS_TAB]
 
 # Database Configuration
 DB_HOST=localhost
 DB_PORT=15432
 DB_NAME=my_project_db
-DB_USER=my_project_user
-DB_PASSWORD=secure_password_123
+DB_USER=my_project_user  # สร้าง dedicated user - ไม่ใช้ postgres admin
+DB_PASSWORD=[GENERATE_STRONG_PASSWORD]
 
 # API Configuration
 API_URL=http://api.myproject.localhost
@@ -1632,22 +1659,34 @@ FRONTEND_URL=http://myproject.localhost
 
 #### Architecture Security
 - **Centralized Authentication** - Keycloak เป็น single source of truth สำหรับ authentication
-- **Database Isolation** - Central PostgreSQL เข้าถึงผ่าน Traefik เท่านั้น (db.localhost:5432)
+- **Database Isolation** - Central PostgreSQL เข้าถึงผ่าน Traefik TCP Router เท่านั้น (localhost:15432)
 - **No Direct Database Access** - Frontend ไม่เชื่อมต่อ Database โดยตรง
 - **Reverse Proxy Pattern** - Traefik จัดการ SSL, routing, load balancing
 - **Network Segregation** - Services แยกตาม Docker networks
 
 #### Implementation Security
-```bash
-# ใช้ environment variables สำหรับ sensitive data
-- ไม่ hard-code passwords ในโค้ด
-- ใช้ HTTPS ใน production
+
+**🔐 Credential Management:**
+- **ไม่ hard-code passwords ในโค้ดหรือเอกสาร**
+- ใช้ Environment Variables หรือ Secret Management
+- สร้าง dedicated database users สำหรับแต่ละแอปพลิเคชัน
+- ใช้ Service Accounts แทนการใช้ admin users
+- เปลี่ยน default passwords ทั้งหมด
+
+**🛡️ Authentication & Authorization:**
+- ใช้ **OAuth2/OIDC** standard flows
+- สร้าง **separate clients** สำหรับ frontend และ backend
+- ใช้ **Service Account** สำหรับ machine-to-machine communication
+- ตั้งค่า **proper scopes และ roles**
+- ไม่ใช้ iframe embedding (ใช้ redirect flow)
+
+**🌐 Network Security:**
+- ใช้ HTTPS ใน production เท่านั้น
 - ตั้งค่า CORS อย่างเหมาะสม
+- ไม่เปิด database ports โดยตรง (ใช้ Traefik TCP Router)
 - Validate และ sanitize input data
 - Implement proper error handling
-- ไม่เปิด database ports โดยตรง
 - ใช้ JWT tokens สำหรับ API authorization
-```
 
 ### 2. Database Best Practices
 ```sql
@@ -1665,19 +1704,44 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ALTER TABLE users ADD COLUMN uuid UUID DEFAULT uuid_generate_v4();
 ```
 
-### 3. Keycloak Best Practices
-```bash
-# Role-based access control
-- สร้าง roles ที่เฉพาะเจาะจง
-- ใช้ realm roles สำหรับ system-wide permissions
-- ใช้ client roles สำหรับ application-specific permissions
-- Implement least privilege principle
+### 3. Keycloak Service Account Best Practices
 
-# Token management
-- ตั้งค่า token expiration อย่างเหมาะสม
-- Implement token refresh mechanism
-- ใช้ refresh tokens อย่างปลอดภัย
+**📋 Step-by-Step Service Account Creation:**
+
+```bash
+# 1. สร้าง Client สำหรับ Backend Service
+- Client ID: "my-backend-service"
+- Client Type: "OpenID Connect"
+- Client authentication: ON
+- Standard flow: OFF (สำหรับ service account)
+- Service accounts roles: ON
+
+# 2. ตั้งค่า Service Account
+- ไปที่ Clients > my-backend-service > Service Account
+- บันทึก Client Secret จาก Credentials tab
+- กำหนด roles ที่จำเป็นใน Service Account Roles tab
+
+# 3. สร้าง Dedicated Roles
+- สร้าง client-specific roles: "read-data", "write-data", "admin-access"
+- กำหนดเฉพาะ permissions ที่จำเป็น
+- ห้ามใช้ admin roles สำหรับ application services
 ```
+
+**🔐 Service Account vs User Account:**
+
+| Use Case | Account Type | Example |
+|----------|--------------|---------|
+| Machine-to-Machine API calls | Service Account | Backend service เรียก API |
+| User login to frontend | User Account | ผู้ใช้ login ผ่าน web |
+| Automated workflows | Service Account | n8n workflows เรียก APIs |
+| Database migrations | Service Account | Dedicated migration user |
+
+**🛡️ Security Guidelines:**
+- **Service Accounts ไม่มี password** - ใช้ Client Credentials flow
+- **แยก Service Account ต่างๆ** - ไม่ใช้ account เดียวกันหลายแอป
+- **จำกัด Token Lifetime** - ตั้งค่า access token ให้หมดอายุเร็ว
+- **Monitor Usage** - ติดตาม service account activities
+- **Rotate Secrets** - เปลี่ยน client secrets เป็นระยะ
 
 ### 4. Development Workflow
 ```bash
